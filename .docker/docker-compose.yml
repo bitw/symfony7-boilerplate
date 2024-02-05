@@ -1,0 +1,74 @@
+version: "3.8"
+
+x-php-container: &php-container
+    build:
+        context: ./php
+        args:
+            TIMEZONE: ${TIMEZONE}
+    volumes:
+        - ../src/:/var/www/application
+
+services:
+    app-init:
+        <<: *php-container
+        depends_on:
+            - postgres
+            - mysql
+        entrypoint: [ "/bin/bash", "-c" ]
+        command:
+            - |
+                if [ ! -f .env ]; then
+                  cp .env.example .env
+                fi
+                composer install --ignore-platform-reqs
+
+    mysql:
+        image: mysql:8.0.33
+        restart: always
+        platform: linux/x86_64
+        command: --default-authentication-plugin=mysql_native_password
+        volumes:
+            - "./../volumes/my_data:/var/lib/mysql"
+        environment:
+            MYSQL_ROOT_PASSWORD: '${MYSQL_ROOT_PASSWORD}'
+            MYSQL_DATABASE: '${MYSQL_DATABASE}'
+            MYSQL_USER: '${MYSQL_USERNAME}'
+            MYSQL_PASSWORD: '${MYSQL_PASSWORD}'
+        ports:
+            - '3306:${MYSQL_PORT}'
+
+    postgres:
+        image: postgres:16-alpine
+        restart: always
+        platform: linux/x86_64
+        environment:
+            MYSQL_ROOT_PASSWORD: ${PGSQL_ROOT_PASSWORD}
+            POSTGRES_DB: '${PGSQL_DATABASE}'
+            POSTGRES_USER: '${PGSQL_USERNAME}'
+            POSTGRES_PASSWORD: '${PGSQL_PASSWORD}'
+        expose:
+            - '${PGSQL_PORT}'
+        ports:
+            - '5432:${PGSQL_PORT}'
+        volumes:
+            - './../volumes/pg_data:/var/lib/postgresql/data'
+
+    php-fpm:
+        <<: *php-container
+        depends_on:
+            - app-init
+            - postgres
+            - mysql
+
+    nginx:
+        build:
+            context: ./nginx
+        volumes:
+            - ../src:/var/www/application
+        ports:
+            - "80:80"
+            - "443:443"
+        env_file:
+            - .env.nginx.localhost
+        depends_on:
+            - php-fpm
